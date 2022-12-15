@@ -76,7 +76,15 @@ fn main() {
 fn run(args: &Args) -> Result<()> {
     for path in args.paths() {
         let extension = read_extension(path)?;
-        let format = guess_format(path)?;
+
+        // Not being able to figure out one file type isn't the end of the world.
+        let format = match guess_format(path) {
+            Ok(format) => format,
+            Err(e) => {
+                eprintln!("warning: {e}");
+                continue;
+            }
+        };
 
         if !is_allowed_extension(extension, format) {
             let from = Path::new(path);
