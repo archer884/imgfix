@@ -1,5 +1,5 @@
 use std::{
-    fs, io,
+    error, fmt, fs, io,
     path::{self, Path},
     process,
 };
@@ -13,7 +13,7 @@ type Result<T, E = Error> = std::result::Result<T, E>;
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error(transparent)]
-    Image(#[from] image::ImageError),
+    Image(BadImage),
 
     #[error(transparent)]
     Io(#[from] io::Error),
@@ -26,7 +26,28 @@ impl Error {
     fn bad_extension(path: impl Into<String>) -> Self {
         Error::BadExtension(path.into())
     }
+
+    fn bad_image(path: impl Into<String>, error: image::ImageError) -> Self {
+        Error::Image(BadImage {
+            path: path.into(),
+            error,
+        })
+    }
 }
+
+#[derive(Debug)]
+struct BadImage {
+    path: String,
+    error: image::ImageError,
+}
+
+impl fmt::Display for BadImage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} ({})", self.error, self.path)
+    }
+}
+
+impl error::Error for BadImage {}
 
 #[derive(Clone, Debug, Parser)]
 struct Args {
@@ -66,7 +87,7 @@ fn run(args: &Args) -> Result<()> {
                 println!("{}", display_filename(&to));
             } else {
                 let preferred_extension = preferred_extension(format);
-                println!("{} -> {preferred_extension}", display_filename(&from));
+                println!("{} -> {preferred_extension}", display_filename(from));
             }
         }
     }
@@ -89,10 +110,11 @@ fn is_allowed_extension(extension: &str, format: ImageFormat) -> bool {
 
 fn guess_format(path: &str) -> Result<ImageFormat> {
     let buffer = fs::read(path)?;
-    Ok(image::guess_format(&buffer)?)
+    let format = image::guess_format(&buffer).map_err(|e| Error::bad_image(path, e))?;
+    Ok(format)
 }
 
-fn read_extension<'a>(path: &str) -> Result<&str> {
+fn read_extension(path: &str) -> Result<&str> {
     let (_stem, extension) = path
         .rsplit_once('.')
         .ok_or_else(|| Error::bad_extension(path))?;
